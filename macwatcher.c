@@ -80,7 +80,6 @@ int main() {
   printf("MAC ADDRESS SET DONE\n");
 
   // TURN UP INTERFACE AGAIN
-  // strncpy(ifr.ifr_name, interface_name, IFNAMSIZ);
   if (ioctl(sockfd, SIOCGIFFLAGS, &ifr) < 0) {
     printf("could not back up %s", interface_name);
     close(sockfd);
