@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
 
   int sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   if (sockfd < 0) {
-    printf("could not create socket");
+    printf("could not create socket\n");
     return 0;
   }
 
@@ -59,14 +59,14 @@ int main(int argc, char **argv) {
   // TURN DOWN INTERFACE;
   strncpy(ifr.ifr_name, interface_name, IFNAMSIZ);
   if (ioctl(sockfd, SIOCGIFFLAGS, &ifr) < 0) {
-    printf("could not turn down %s", interface_name);
+    printf("could not turn down %s\n", interface_name);
     close(sockfd);
     return 0;
   }
 
   ifr.ifr_flags &= ~IFF_UP;
   if (ioctl(sockfd, SIOCSIFFLAGS, &ifr) < 0) {
-    printf("could not set flags down %s", interface_name);
+    printf("could not set flags dowl %s\n", interface_name);
     close(sockfd);
     return 0;
   }
@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
 
   memcpy(ifr.ifr_hwaddr.sa_data, new_mac, 6);
   if (ioctl(sockfd, SIOCSIFHWADDR, &ifr) < 0) {
-    printf("could not set new mac %s", interface_name);
+    printf("could not set new mac %s\n", interface_name);
     close(sockfd);
     return 0;
   }
@@ -93,14 +93,14 @@ int main(int argc, char **argv) {
 
   // TURN UP INTERFACE AGAIN
   if (ioctl(sockfd, SIOCGIFFLAGS, &ifr) < 0) {
-    printf("could not back up %s", interface_name);
+    printf("could not back up %s\n", interface_name);
     close(sockfd);
     return 0;
   }
 
   ifr.ifr_flags |= IFF_UP;
   if (ioctl(sockfd, SIOCSIFFLAGS, &ifr) < 0) {
-    printf("could not set up flags %s", interface_name);
+    printf("could not set up flags %s\n", interface_name);
     close(sockfd);
     return 0;
   }
