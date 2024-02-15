@@ -27,10 +27,22 @@ unsigned char *get_mac(int sock, const char *ifname) {
   return mac;
 }
 
-int main() {
+char *shift_args(int *argc, char ***argv) {
+  assert(*argc > 0);
+  char *result = **argv;
+  *argc -= 1;
+  *argv += 1;
+  return result;
+}
+
+int main(int argc, char **argv) {
+  const char *program = shift_args(&argc, &argv);
+  const char *interface_name = shift_args(&argc, &argv);
+  // const char *interface_name = "wlx90de80910f38";
+  printf("RUNNING %s\n", program);
+
   srand(time(NULL));
-  printf("running mac channger\n");
-  const char *interface_name = "wlx90de80910f38";
+
   struct ifreq ifr;
 
   int sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
