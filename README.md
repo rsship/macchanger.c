@@ -5,6 +5,6 @@ but some of old wifi drivers does not supports it. so this lib will you with thi
 
 ```console
 make
-sudo ./macwatcher
+sudo ./macwatcher <INTERFACE NAME>
 ```
 
