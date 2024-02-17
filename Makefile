@@ -1,3 +1,5 @@
+CC=clang
+
 run: 
-	@clang-17 -Wall -Wextra -o macwatcher macwatcher.c
+	$(CC) -Wall -Wextra -o macwatcher macwatcher.c
 .PHONY: run
