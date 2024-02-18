@@ -13,6 +13,19 @@
 #include <time.h>
 #include <unistd.h>
 
+void usage() {
+  printf("Net Watcher\n");
+  printf("    Usage: netwatcher <INTERFACE_NAME>\n");
+}
+
+char *shift_args(int *argc, char ***argv) {
+  assert(*argc > 0);
+  char *result = **argv;
+  *argc -= 1;
+  *argv += 1;
+  return result;
+}
+
 unsigned char *get_mac_linux(int sock, const char *ifname) {
   struct ifreq ifr;
   memset(&ifr, 0, sizeof(ifr));
@@ -75,15 +88,12 @@ int set_mac_linux(int sockfd, const char *interface_name) {
   return 0;
 }
 
-char *shift_args(int *argc, char ***argv) {
-  assert(*argc > 0);
-  char *result = **argv;
-  *argc -= 1;
-  *argv += 1;
-  return result;
-}
-
 int main(int argc, char **argv) {
+  if (argc < 2) {
+    usage();
+    exit(1);
+  }
+
   const char *program = shift_args(&argc, &argv);
   const char *interface_name = shift_args(&argc, &argv);
   // const char *interface_name = "wlx90de80910f38";
@@ -105,7 +115,7 @@ int main(int argc, char **argv) {
   printf("%02X:%02X:%02X:%02X:%02X:%02X\n", cur_mac[0], cur_mac[1], cur_mac[2],
          cur_mac[3], cur_mac[4], cur_mac[5]);
 
-  if(set_mac_linux(sockfd, interface_name) < 0) {
+  if (set_mac_linux(sockfd, interface_name) < 0) {
     printf("COULD NOT SET MAC ADDRESS");
     close(sockfd);
     return 1;
@@ -119,7 +129,6 @@ int main(int argc, char **argv) {
 #ifdef __WIN32
   assert(0 && "NOT IMPLEMENTED YET ON WINDOWS");
 #endif /* ifdef __WIN32__*/
-
 
   close(sockfd);
   return 0;
