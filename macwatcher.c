@@ -1,9 +1,13 @@
+#include <arpa/inet.h>
 #include <assert.h>
 #include <linux/sockios.h>
 #include <math.h>
 #include <net/if.h>
 #include <net/if_arp.h>
+#include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/ip_icmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -86,6 +90,57 @@ int set_mac_linux(int sockfd, const char *interface_name) {
   }
 
   return 0;
+}
+#define PORT 1025
+// #define SERVER_ADDRESS "8.8.8.8"
+
+struct sockaddr_in create_sockaddr(char *address, int port) {
+  struct sockaddr_in sock_addr;
+  memset(&sock_addr, 0, sizeof(sock_addr));
+  sock_addr.sin_addr.s_addr = inet_addr(address);
+  sock_addr.sin_port = htons(port);
+  sock_addr.sin_family = AF_INET;
+  return sock_addr;
+}
+
+long ntransmitted;
+u_char outpack[0x10000];
+int maxpacket = sizeof(outpack);
+struct sockaddr_in whereto;
+
+int send_probe() {
+  int icmp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+
+  struct icmphdr *icp;
+
+  int ident = htons(getpid() & 0xFFFF);
+  int i;
+  int datalen = 8;
+  int confirm = 0;
+
+  icp = (struct icmphdr *)outpack;
+  icp->type = ICMP_ECHO;
+  icp->code = 0;
+  icp->checksum = 0;
+  icp->un.echo.sequence = htons(ntransmitted + 1);
+  icp->un.echo.id = ident; /* ID */
+
+  rcvd_clear(ntransmitted + 1);
+  int cc = datalen + 8; /* skips ICMP portion */
+  icp->checksum = in_cksum((u_short *)icp, cc, 0);
+  struct cmsghdr *cmsg;
+
+  do {
+    static struct iovec iov = {outpack, 0};
+    static struct msghdr m = {&whereto, sizeof(whereto), &iov, 1, &cmsg, 0, 0};
+    m.msg_controllen = sizeof(cmsg);
+    iov.iov_len = cc;
+
+    int i = sendmsg(icmp_sock, &m, confirm);
+    confirm = 0;
+  } while (0);
+
+  return (cc == i ? 0 : i);
 }
 
 int main(int argc, char **argv) {
