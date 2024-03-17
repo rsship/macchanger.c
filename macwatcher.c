@@ -11,19 +11,31 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
-#include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
 
-#define PORT 1025
-u_char outpack[0x10000];
+#define PACKET_SIZE 64
+#define DEFAULT_HOST "google.com"
 
-void usage() {
+#define free_defer(value)                                                      \
+  do {                                                                         \
+    result = (value);                                                          \
+    goto defer;                                                                \
+  } while (0)
+
+typedef struct {
+  int sock;
+  struct sockaddr_in sock_addr;
+} ICMP;
+
+void usage() 
+{
   printf("Net Watcher\n");
   printf("    Usage: netwatcher <INTERFACE_NAME>\n");
 }
 
-char *shift_args(int *argc, char ***argv) {
+char *shift_args(int *argc, char ***argv) 
+{
   assert(*argc > 0);
   char *result = **argv;
   *argc -= 1;
@@ -31,7 +43,8 @@ char *shift_args(int *argc, char ***argv) {
   return result;
 }
 
-unsigned char *get_mac_linux(int sock, const char *ifname) {
+u_char *get_mac_linux(int sock, const char *ifname) 
+{
   struct ifreq ifr;
   memset(&ifr, 0, sizeof(ifr));
   strcpy(ifr.ifr_name, ifname);
@@ -45,13 +58,13 @@ unsigned char *get_mac_linux(int sock, const char *ifname) {
   return mac;
 }
 
-int set_mac_linux(int sockfd, const char *interface_name) {
+int set_mac_linux(int sockfd, const char *interface_name) 
+{
   struct ifreq ifr;
   // TURN DOWN INTERFACE;
   printf("TURNING DOWN WI-FI INTERFACE\n");
   strncpy(ifr.ifr_name, interface_name, IFNAMSIZ);
   if (ioctl(sockfd, SIOCGIFFLAGS, &ifr) < 0)
-
     ifr.ifr_flags &= ~IFF_UP;
   if (ioctl(sockfd, SIOCSIFFLAGS, &ifr) < 0) {
     printf("could not set flags dowl %s\n", interface_name);
@@ -89,94 +102,127 @@ int set_mac_linux(int sockfd, const char *interface_name) {
   return 0;
 }
 
+// int receive_error_msg()
+// {
+//   return 0;
+// }
+
 typedef struct {
-  int pid;
-  struct sockaddr_in *sock_addr;
-} IP_Data;
+  pthread_t thread_id;
+  int thread_num;
+} Thread_Info;
 
-void *main_loop(void *vargp) {
-  IP_Data *ip_data = (IP_Data *)vargp;
-  struct cmsghdr *cmsg;
-  struct msghdr mh;
-  static struct iovec iov = {outpack, 0};
+void *main_loop(void *icmp_raw) 
+{
 
-  mh.msg_name = (caddr_t)&ip_data->sock_addr;
-  mh.msg_namelen = sizeof(ip_data->sock_addr);
-  mh.msg_iov = &iov;
-  mh.msg_iovlen = sizeof(iov);
+  ICMP icmp = *(ICMP *)icmp_raw;
+  char packet[PACKET_SIZE];
+  memset(&packet, 0, PACKET_SIZE);
 
-  for (;;) {
-    do {
-      sleep(2);
-      /*
-        this area for msg creation
-      */
-      if (sendmsg(ip_data->pid, &mh, 0) < 0) {
-        perror("sendmsg():");
-      }
-    } while (0);
+  struct icmphdr *icmp_hdr = (struct icmphdr *)packet;
+  icmp_hdr->type = ICMP_ECHO;
+  icmp_hdr->code = 0;
+  icmp_hdr->un.echo.sequence = htons(1);
+  icmp_hdr->un.echo.id = htons(getpid() & 0xFFFF);
+
+  while (1) 
+  {
+    sleep(1);
+    if (sendto(icmp.sock, packet, PACKET_SIZE, 0,
+               (struct sockaddr *)&icmp.sock_addr,
+               sizeof(icmp.sock_addr)) < 0) {
+      perror("sendto:");
+      // close(icmp.sock);
+      // break;
+    }
+    printf("sending new ICMP message\n");
   }
+  return NULL;
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv) 
+{
   if (argc < 2) {
     usage();
     exit(1);
   }
-
   const char *program = shift_args(&argc, &argv);
   const char *interface_name = shift_args(&argc, &argv);
+  const char *whereto = shift_args(&argc, &argv);
+  whereto = (!whereto) ? DEFAULT_HOST : whereto;
+
   printf("RUNNING %s\n", program);
 
+  ICMP icmp = {0};
+  int result = 0;
+
 #ifdef __linux__
-  int lissock = socket(AF_INET, SOCK_DGRAM, 0);
-  if (lissock < 0) {
-    printf("could not create socket\n");
-    return 1;
+  icmp.sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+  if (icmp.sock < 0) {
+    perror("socket:");
+    free_defer(1);
   }
   srand(time(NULL));
 
-  struct sockaddr_in whereto;
-  memset(&whereto, 0, sizeof(whereto));
-  whereto.sin_port = htons(PORT);
-  whereto.sin_family = AF_INET;
-
-  char *google = "google.com";
-  struct hostent *hp = gethostbyname(google);
+  struct hostent *hp = gethostbyname(whereto);
   if (hp == NULL) {
-    close(lissock);
-    printf("Connection error\n");
-    return 1;
+    perror("gethostbyname:");
+    free_defer(1);
   }
-  memcpy(&whereto.sin_addr, hp->h_addr_list[0], sizeof(whereto.sin_addr));
+  memset(&icmp.sock_addr, 0, sizeof(icmp.sock_addr));
+  icmp.sock_addr.sin_family = AF_INET;
+  memcpy(&icmp.sock_addr.sin_addr.s_addr, hp->h_addr_list[0], 4);
+  // char *tmp =  "142.250.187.142";
+  // memcpy(&icmp.sock_addr.sin_addr.s_addr, tmp, 4);
 
-  pthread_t thread_id;
+  char buffer[1024];
+  struct sockaddr_in from;
+  socklen_t from_len = sizeof(from);
 
-  IP_Data ip_data = {
-      .pid = lissock,
-      .sock_addr = &whereto,
-  };
-  pthread_create(&thread_id, NULL, main_loop, (void *)&ip_data);
+  Thread_Info t_info = {0};
 
-  // TODO: read msg from sender;
-  //
-  pthread_join(thread_id, NULL);
-  close(lissock);
+  int rc = pthread_create(&t_info.thread_id, NULL, main_loop, (void *)&icmp);
+  if (rc) {
+    printf("Could not start new thread\n");
+    free_defer(1);
+  }
+
+  // #define	EAGAIN		11	/* Try again */
+  // #define	ENOMEM		12	/* Out of memory */
+
+  while (1) {
+    if (recvfrom(icmp.sock, buffer, sizeof(buffer), 0, (struct sockaddr *)&from,
+                 &from_len) > 0) {
+      printf("Received ICMP echo reply\n");
+    } else {
+      if (errno == EAGAIN || errno == EINTR) break;
+      else {
+      }
+    }
+  }
+
+  if (pthread_join(t_info.thread_id, NULL) < 0) {
+    printf("could not join thread\n");
+    free_defer(1);
+  }
+
+
+  close(icmp.sock);
   return 0;
 
-  unsigned char *cur_mac = get_mac_linux(lissock, interface_name);
+  unsigned char *cur_mac = get_mac_linux(icmp.sock, interface_name);
   if (cur_mac == NULL) {
     printf("COULD NOT GET MAC ADDRESS");
-    close(lissock);
+    close(icmp.sock);
     return 1;
   }
   printf("CURRENT MAC ADDRESS\n");
   printf("%02X:%02X:%02X:%02X:%02X:%02X\n", cur_mac[0], cur_mac[1], cur_mac[2],
          cur_mac[3], cur_mac[4], cur_mac[5]);
 
-  if (set_mac_linux(lissock, interface_name) < 0) {
+  if (set_mac_linux(icmp.sock, interface_name) < 0) {
     printf("COULD NOT SET MAC ADDRESS");
-    close(lissock);
+    close(icmp.sock);
     return 1;
   }
 
@@ -189,75 +235,10 @@ int main(int argc, char **argv) {
 #ifdef __WIN32
   assert(0 && "NOT IMPLEMENTED YET ON WINDOWS");
 #endif /* ifdef __WIN32__*/
-  close(lissock);
+  close(icmp.sock);
   return 0;
-}
 
-// void receive_error_msg(int sockfd, struct sockaddr_in whereto) {
-//   int res;
-//   char cbuf[512];
-//   struct iovec iov;
-//   struct msghdr msg;
-//   struct cmsghdr *cmsg;
-//   struct sock_extended_err *e;
-//   struct icmphdr icmph;
-//   int net_errors = 0;
-//   int local_errors = 0;
-//   int saved_errno = errno;
-//
-//   iov.iov_base = &icmph;
-//   iov.iov_len = sizeof(icmph);
-//   msg.msg_name = (void *)&whereto;
-//   msg.msg_namelen = sizeof(whereto);
-//   msg.msg_iov = &iov;
-//   msg.msg_iovlen = 1;
-//   msg.msg_flags = 0;
-//   msg.msg_control = cbuf;
-//   msg.msg_controllen = sizeof(cbuf);
-//
-//   // NOTE: receive msg from ping
-//   res = recvmsg(sockfd, &msg, MSG_ERRQUEUE | MSG_DONTWAIT);
-//   if (res < 0) {
-//     close(sockfd);
-//     printf("recv msg abort\n");
-//     abort();
-//   }
-//
-//   // NOTE: iterate throught each msg and extract each of it type
-//   for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-//     if (cmsg->cmsg_level == SOL_IP) {
-//       if (cmsg->cmsg_type == IP_RECVERR) {
-//         e = (struct sock_extended_err *)CMSG_DATA(cmsg);
-//       }
-//     }
-//   }
-//   if (e == NULL) {
-//     abort();
-//   }
-//
-//   switch (e->ee_type) {
-//   case ICMP_ECHOREPLY:
-//     printf("Echo Replay\n");
-//     break;
-//   case ICMP_DEST_UNREACH:
-//     switch (e->ee_code) {
-//     case ICMP_NET_UNREACH:
-//       printf("Destination Net Unreachable\n");
-//       break;
-//     case ICMP_HOST_UNREACH:
-//       printf("Destination Host unreachable\n");
-//       break;
-//     case ICMP_PORT_UNREACH:
-//       printf("Destination Port unreachable\n");
-//       break;
-//     default:
-//       printf("Dest Unreachable, Bad Code: %d\n", e->ee_code);
-//       break;
-//     }
-//   case ICMP_ECHO:
-//     printf("Echo Request\n");
-//     break;
-//   default:
-//     printf("BAD ICMP TYPE: %d\n", e->ee_type);
-//   }
-// }
+defer:
+  close(icmp.sock);
+  return result;
+}
