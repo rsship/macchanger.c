@@ -31,7 +31,9 @@ typedef struct {
 void usage() 
 {
   printf("Net Watcher\n");
-  printf("    Usage: netwatcher <INTERFACE_NAME>\n");
+  printf("    Usage: netwatcher <INTERFACE_NAME> OPTIONS \n");
+  printf("           Options:\n");
+  printf("                   <REMOTE_HOST> -> remove host of your choice default one is google.com");
 }
 
 char *shift_args(int *argc, char ***argv) 

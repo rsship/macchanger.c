@@ -10,6 +10,8 @@ it also comes with continous network watching tool, think as ping util
 
 ```console
 make
-sudo ./macwatcher <INTERFACE NAME>
+./macwatcher <INTERFACE NAME> <OPTIONS>
 ```
+#### OPTIONS
+- remote host (e.g. google.com)
 
