@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <netinet/ip_icmp.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,15 +26,23 @@
 
 typedef struct {
   int sock;
-  struct sockaddr_in sock_addr;
-} ICMP;
+  struct sockaddr_in to;
+  struct sockaddr_in from;
+  int sender_count;
+} Echo;
+
+typedef struct {
+  struct icmphdr hdr;
+  char msg[PACKET_SIZE - sizeof(struct icmphdr)];
+} Ping_Packet;
 
 void usage() 
 {
   printf("Net Watcher\n");
   printf("    Usage: netwatcher <INTERFACE_NAME> OPTIONS \n");
   printf("           Options:\n");
-  printf("                   <REMOTE_HOST> -> remove host of your choice default one is google.com");
+  printf("                   <REMOTE_HOST> -> remove host of your choice "
+         "default one is google.com");
 }
 
 char *shift_args(int *argc, char ***argv) 
@@ -104,11 +113,6 @@ int set_mac_linux(int sockfd, const char *interface_name)
   return 0;
 }
 
-// int receive_error_msg()
-// {
-//   return 0;
-// }
-
 typedef struct {
   pthread_t thread_id;
   int thread_num;
@@ -117,27 +121,29 @@ typedef struct {
 void *main_loop(void *icmp_raw) 
 {
 
-  ICMP icmp = *(ICMP *)icmp_raw;
+  Echo echo = *(Echo *)icmp_raw;
   char packet[PACKET_SIZE];
   memset(&packet, 0, PACKET_SIZE);
 
-  struct icmphdr *icmp_hdr = (struct icmphdr *)packet;
-  icmp_hdr->type = ICMP_ECHO;
-  icmp_hdr->code = 0;
-  icmp_hdr->un.echo.sequence = htons(1);
-  icmp_hdr->un.echo.id = htons(getpid() & 0xFFFF);
+  Ping_Packet *ping_pkt = (Ping_Packet *)packet;
+  ping_pkt->hdr.type = ICMP_ECHO;
+  ping_pkt->hdr.code = 0;
+  ping_pkt->hdr.un.echo.sequence = htons(1);
+  ping_pkt->hdr.un.echo.id = htons(getpid());
 
-  while (1) 
-  {
+  while (1) {
     sleep(1);
-    if (sendto(icmp.sock, packet, PACKET_SIZE, 0,
-               (struct sockaddr *)&icmp.sock_addr,
-               sizeof(icmp.sock_addr)) < 0) {
+    if (sendto(echo.sock, packet, PACKET_SIZE, 0, (struct sockaddr *)&echo.to,
+               sizeof(echo.to)) < 0) {
       perror("sendto:");
-      // close(icmp.sock);
-      // break;
+      printf("errno %d\n", errno);
     }
-    printf("sending new ICMP message\n");
+    // Type
+    //    8 for echo message;
+    //    0 for echo reply message.
+
+    printf("Send Echo message\n");
+    echo.sender_count += 1;
   }
   return NULL;
 }
@@ -150,56 +156,90 @@ int main(int argc, char **argv)
   }
   const char *program = shift_args(&argc, &argv);
   const char *interface_name = shift_args(&argc, &argv);
-  const char *whereto = shift_args(&argc, &argv);
-  whereto = (!whereto) ? DEFAULT_HOST : whereto;
+  const char *optional_host = shift_args(&argc, &argv);
+  optional_host = (!optional_host) ? DEFAULT_HOST : optional_host;
 
   printf("RUNNING %s\n", program);
 
-  ICMP icmp = {0};
+  Echo echo = {0};
   int result = 0;
 
 #ifdef __linux__
-  icmp.sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
-  if (icmp.sock < 0) {
+  echo.sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+  if (echo.sock < 0) {
     perror("socket:");
     free_defer(1);
   }
   srand(time(NULL));
 
-  struct hostent *hp = gethostbyname(whereto);
+  struct hostent *hp = gethostbyname(optional_host);
   if (hp == NULL) {
     perror("gethostbyname:");
     free_defer(1);
   }
-  memset(&icmp.sock_addr, 0, sizeof(icmp.sock_addr));
-  icmp.sock_addr.sin_family = AF_INET;
-  memcpy(&icmp.sock_addr.sin_addr.s_addr, hp->h_addr_list[0], 4);
-  // char *tmp =  "142.250.187.142";
-  // memcpy(&icmp.sock_addr.sin_addr.s_addr, tmp, 4);
+  memset(&echo.to, 0, sizeof(echo.to));
+  echo.to.sin_family = AF_INET;
+  memcpy(&echo.to.sin_addr.s_addr, hp->h_addr_list[0], 4);
 
-  char buffer[1024];
-  struct sockaddr_in from;
-  socklen_t from_len = sizeof(from);
-
+  char buffer[PACKET_SIZE];
+  socklen_t from_len = sizeof(echo.from);
   Thread_Info t_info = {0};
 
-  int rc = pthread_create(&t_info.thread_id, NULL, main_loop, (void *)&icmp);
+  int rc = pthread_create(&t_info.thread_id, NULL, main_loop, (void *)&echo);
   if (rc) {
     printf("Could not start new thread\n");
     free_defer(1);
   }
-
   // #define	EAGAIN		11	/* Try again */
   // #define	ENOMEM		12	/* Out of memory */
-
   while (1) {
-    if (recvfrom(icmp.sock, buffer, sizeof(buffer), 0, (struct sockaddr *)&from,
-                 &from_len) > 0) {
-      printf("Received ICMP echo reply\n");
-    } else {
-      if (errno == EAGAIN || errno == EINTR) break;
-      else {
+    // TODO: what if its an hotspot conneciton, hotspot connections just are
+
+    // Message Type 3 (the Most Important one)
+    // Type
+    //    3
+    // Code
+    //    0 = net unreachable;
+    //    1 = host unreachable;
+    //    2 = protocol unreachable;
+    //    3 = port unreachable;
+    //    4 = fragmentation needed and DF set;
+    //    5 = source route failed.
+
+    if (recvfrom(echo.sock, buffer, sizeof(buffer), 0,
+                 (struct sockaddr *)&echo.from, &from_len) < 0) {
+      printf("recvfrom errno %d\n", errno);
+      if (errno == EAGAIN || errno == EINTR)
+        printf("got an error try again!");
+      continue;
+    }
+
+    Ping_Packet *ping_pkg = (Ping_Packet *)buffer;
+
+    if (ping_pkg->hdr.type == 3) {
+      switch (ping_pkg->hdr.code) {
+      case 0:
+        printf("Net Unreachable\n");
+        break;
+      case 1:
+        printf("Host Unreachable\n");
+        break;
+      case 2:
+        printf("Protocol Unreachable\n");
+        break;
+      case 3:
+        printf("Port Unreachable\n");
+        break;
+      case 5:
+        printf("Source Route Failed\n");
+        break;
+      default:
+        printf("Destination Unreacable");
+        break;
       }
+    }
+    if (ping_pkg->hdr.type == 0) {
+      printf("Received Echo Reply Msg\n");
     }
   }
 
@@ -207,24 +247,22 @@ int main(int argc, char **argv)
     printf("could not join thread\n");
     free_defer(1);
   }
-
-
-  close(icmp.sock);
+  close(echo.sock);
   return 0;
 
-  unsigned char *cur_mac = get_mac_linux(icmp.sock, interface_name);
+  unsigned char *cur_mac = get_mac_linux(echo.sock, interface_name);
   if (cur_mac == NULL) {
     printf("COULD NOT GET MAC ADDRESS");
-    close(icmp.sock);
+    close(echo.sock);
     return 1;
   }
   printf("CURRENT MAC ADDRESS\n");
   printf("%02X:%02X:%02X:%02X:%02X:%02X\n", cur_mac[0], cur_mac[1], cur_mac[2],
          cur_mac[3], cur_mac[4], cur_mac[5]);
 
-  if (set_mac_linux(icmp.sock, interface_name) < 0) {
+  if (set_mac_linux(echo.sock, interface_name) < 0) {
     printf("COULD NOT SET MAC ADDRESS");
-    close(icmp.sock);
+    close(echo.sock);
     return 1;
   }
 
@@ -237,10 +275,10 @@ int main(int argc, char **argv)
 #ifdef __WIN32
   assert(0 && "NOT IMPLEMENTED YET ON WINDOWS");
 #endif /* ifdef __WIN32__*/
-  close(icmp.sock);
+  close(echo.sock);
   return 0;
 
 defer:
-  close(icmp.sock);
+  close(echo.sock);
   return result;
 }
