@@ -20,6 +20,7 @@
 #define PACKET_SIZE 64
 #define DEFAULT_HOST "google.com"
 #define SENDER_LIMIT 10
+#define SLEEP_TIMEOUT 300 // time in seconds
 
 #define free_defer(value)                                                      \
   do {                                                                         \
@@ -41,7 +42,8 @@ typedef struct {
   char msg[PACKET_SIZE - sizeof(struct icmphdr)];
 } Ping_Packet;
 
-void usage() {
+void usage() 
+{
   printf("Net Watcher\n");
   printf("    Usage: netwatcher <INTERFACE_NAME> OPTIONS \n");
   printf("           Options:\n");
@@ -49,7 +51,8 @@ void usage() {
          "default one is google.com");
 }
 
-char *shift_args(int *argc, char ***argv) {
+char *shift_args(int *argc, char ***argv) 
+{
   assert(*argc > 0);
   char *result = **argv;
   *argc -= 1;
@@ -57,7 +60,8 @@ char *shift_args(int *argc, char ***argv) {
   return result;
 }
 
-u_char *get_mac_linux(int sock, const char *ifname) {
+u_char *get_mac_linux(int sock, const char *ifname) 
+{
   struct ifreq ifr;
   memset(&ifr, 0, sizeof(ifr));
   strcpy(ifr.ifr_name, ifname);
@@ -71,7 +75,8 @@ u_char *get_mac_linux(int sock, const char *ifname) {
   return mac;
 }
 
-int set_mac_linux(int sockfd, const char *interface_name, u_char mac[]) {
+int set_mac_linux(int sockfd, const char *interface_name, u_char mac[]) 
+{
   struct ifreq ifr;
   // TURN DOWN INTERFACE;
   strncpy(ifr.ifr_name, interface_name, IFNAMSIZ);
@@ -119,7 +124,8 @@ typedef struct {
 } Thread_Info;
 
 // RFC 1071
-uint16_t checksum(uint16_t *addr, int len) {
+uint16_t checksum(uint16_t *addr, int len) 
+{
   int count = len;
   register uint32_t sum = 0;
   uint16_t answer = 0;
@@ -140,7 +146,8 @@ uint16_t checksum(uint16_t *addr, int len) {
   return (answer);
 }
 
-void *main_loop(void *icmp_raw) {
+void *main_loop(void *icmp_raw) 
+{
   Echo echo = *(Echo *)icmp_raw;
   char packet[PACKET_SIZE];
   memset(&packet, 0, PACKET_SIZE);
@@ -162,7 +169,7 @@ void *main_loop(void *icmp_raw) {
 
   bool flag = 1;
   while (flag) {
-    sleep(1);
+    sleep(SLEEP_TIMEOUT);
 
     if (sendto(echo.sock, packet, PACKET_SIZE, 0, (struct sockaddr *)&echo.to,
                sizeof(echo.to)) < 0) {
@@ -192,7 +199,8 @@ void *main_loop(void *icmp_raw) {
   close(udp_sock);
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv) 
+{
   if (argc < 2) {
     usage();
     exit(1);
