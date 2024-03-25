@@ -10,6 +10,7 @@ sudo ./macwatcher <INTERFACE NAME> <OPTIONS>
 ```
 #### OPTIONS
 - remote host (e.g. google.com)
+- ping timeout in seconds
 
 ### TODO
 - [x] Linux
