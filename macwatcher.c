@@ -218,7 +218,7 @@ int main(int argc, char** argv)
     char* timeout = shift_args(&argc, &argv);
 
     optional_host = (!optional_host) ? DEFAULT_HOST : optional_host;
-    ping_timeout = (!timeout) ? 300 : atoi(timeout);
+    ping_timeout = (!timeout) ? 300 : atoi(timeout) * 60;
 
     printf("ping timeout %d\n", ping_timeout);
     printf("optional host %s\n", optional_host);
