@@ -18,7 +18,7 @@
 #include <unistd.h>
 
 #define PACKET_SIZE 64
-#define SENDER_LIMIT 10
+#define SENDER_LIMIT 3
 #define DEFAULT_HOST "google.com"
 
 #define free_defer(value) \
@@ -146,7 +146,7 @@ uint16_t checksum(uint16_t* addr, int len)
     return (answer);
 }
 
-int ping_timeout;
+int* ping_timeout;
 
 void* main_loop(void* icmp_raw)
 {
@@ -171,7 +171,7 @@ void* main_loop(void* icmp_raw)
 
     bool flag = 1;
     while (flag) {
-        sleep(ping_timeout);
+        sleep(*ping_timeout);
 
         if (sendto(echo.sock,
                 packet,
@@ -218,10 +218,7 @@ int main(int argc, char** argv)
     char* timeout = shift_args(&argc, &argv);
 
     optional_host = (!optional_host) ? DEFAULT_HOST : optional_host;
-    ping_timeout = (!timeout) ? 300 : atoi(timeout) * 60;
-
-    printf("ping timeout %d\n", ping_timeout);
-    printf("optional host %s\n", optional_host);
+    *ping_timeout = (!timeout) ? 300 : atoi(timeout) * 60;
 
     printf("RUNNING %s\n", program);
 
