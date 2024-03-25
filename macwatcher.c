@@ -18,9 +18,8 @@
 #include <unistd.h>
 
 #define PACKET_SIZE 64
-#define DEFAULT_HOST "google.com"
 #define SENDER_LIMIT 10
-#define SLEEP_TIMEOUT 300 // time in seconds
+#define DEFAULT_HOST "google.com"
 
 #define free_defer(value) \
     do {                  \
@@ -28,8 +27,7 @@
         goto defer;       \
     } while (0)
 
-typedef struct
-{
+typedef struct {
     int sock;
     struct sockaddr_in to;
     struct sockaddr_in from;
@@ -38,8 +36,7 @@ typedef struct
 
 int sender_count;
 
-typedef struct
-{
+typedef struct {
     struct icmphdr hdr;
     char msg[PACKET_SIZE - sizeof(struct icmphdr)];
 } Ping_Packet;
@@ -49,21 +46,21 @@ void usage()
     printf("Net Watcher\n");
     printf("    Usage: netwatcher <INTERFACE_NAME> OPTIONS \n");
     printf("           Options:\n");
-    printf("                   <REMOTE_HOST> -> remove host of your choice "
-           "default one is google.com");
+    printf("                    <REMOTE_HOST>: remove host of your choice ");
+    printf("                                 default one is google.com");
+    printf("                    <PING_TIMEOUT>: ping timeout in secs");
 }
 
 char* shift_args(int* argc, char*** argv)
 {
-    assert(*argc > 0);
+    // assert(*argc > 0);
     char* result = **argv;
     *argc -= 1;
     *argv += 1;
     return result;
 }
 
-u_char*
-get_mac_linux(int sock, const char* ifname)
+u_char* get_mac_linux(int sock, const char* ifname)
 {
     struct ifreq ifr;
     memset(&ifr, 0, sizeof(ifr));
@@ -121,8 +118,7 @@ int set_mac_linux(int sockfd, const char* interface_name, u_char mac[])
     return 0;
 }
 
-typedef struct
-{
+typedef struct {
     pthread_t thread_id;
     int thread_num;
 } Thread_Info;
@@ -150,6 +146,8 @@ uint16_t checksum(uint16_t* addr, int len)
     return (answer);
 }
 
+int ping_timeout;
+
 void* main_loop(void* icmp_raw)
 {
     Echo echo = *(Echo*)icmp_raw;
@@ -173,7 +171,7 @@ void* main_loop(void* icmp_raw)
 
     bool flag = 1;
     while (flag) {
-        sleep(SLEEP_TIMEOUT);
+        sleep(ping_timeout);
 
         if (sendto(echo.sock,
                 packet,
@@ -217,7 +215,13 @@ int main(int argc, char** argv)
     const char* program = shift_args(&argc, &argv);
     char* interface_name = shift_args(&argc, &argv);
     const char* optional_host = shift_args(&argc, &argv);
+    char* timeout = shift_args(&argc, &argv);
+
     optional_host = (!optional_host) ? DEFAULT_HOST : optional_host;
+    ping_timeout = (!timeout) ? 300 : atoi(timeout);
+
+    printf("ping timeout %d\n", ping_timeout);
+    printf("optional host %s\n", optional_host);
 
     printf("RUNNING %s\n", program);
 
