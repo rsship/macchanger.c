@@ -17,9 +17,8 @@
 #include <time.h>
 #include <unistd.h>
 
-#define PACKET_SIZE 64
-#define SENDER_LIMIT 3
-#define DEFAULT_HOST "google.com"
+#define PACKET_SIZE 64  // packet size of each echo packet
+#define SENDER_LIMIT 12 // max try logic to send ping
 
 #define free_defer(value) \
     do {                  \
@@ -34,6 +33,7 @@ typedef struct {
     char* interface_name;
 } Echo;
 
+#define DEFAULT_HOST "google.com"
 int sender_count;
 
 typedef struct {
@@ -146,7 +146,7 @@ uint16_t checksum(uint16_t* addr, int len)
     return (answer);
 }
 
-int* ping_timeout;
+int ping_timeout;
 
 void* main_loop(void* icmp_raw)
 {
@@ -161,8 +161,6 @@ void* main_loop(void* icmp_raw)
     ping_pkt->hdr.un.echo.id = htons(getpid());
     ping_pkt->hdr.checksum = checksum((uint16_t*)&packet, PACKET_SIZE);
 
-    int udp_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-
     srand(time(NULL));
     u_char mac[] = { 0x00, 0x16, 0x3E, 0x33, 0x44, 0x66 };
     for (int i = 2; i < 6; ++i) {
@@ -171,27 +169,29 @@ void* main_loop(void* icmp_raw)
 
     bool flag = 1;
     while (flag) {
-        sleep(*ping_timeout);
-
-        if (sendto(echo.sock,
-                packet,
-                PACKET_SIZE,
-                0,
-                (struct sockaddr*)&echo.to,
-                sizeof(echo.to))
-            < 0) {
-            perror("sendto:");
+        sleep(ping_timeout);
+        for (int i = 0; i < 4; ++i) {
+            if (sendto(echo.sock,
+                    packet,
+                    PACKET_SIZE,
+                    0,
+                    (struct sockaddr*)&echo.to,
+                    sizeof(echo.to))
+                < 0) {
+                perror("sendto:");
+            }
         }
         // Type
         //    8 for echo message;
         //    0 for echo reply message.
         Ping_Packet* ping_pkt = (Ping_Packet*)packet;
         if (ping_pkt->hdr.type == 8) {
-            printf("sending ICMP MSG\n");
+            printf("SENDING ICMP MSG\n");
             sender_count += 1;
         }
         if (sender_count > SENDER_LIMIT) {
-            /// DESTINATION UNREACHABLE
+            int udp_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+           /// DESTINATION UNREACHABLE
             /// that's maybed caused by no doing mac randomization
             /// so let's randomize the mac then
             if (get_mac_linux(udp_sock, echo.interface_name) == NULL) {
@@ -201,9 +201,9 @@ void* main_loop(void* icmp_raw)
                 printf("COULD NOT SET MAC ADDRESS");
             }
             sender_count = 0;
+            close(udp_sock);
         }
     }
-    close(udp_sock);
 }
 
 int main(int argc, char** argv)
@@ -218,7 +218,7 @@ int main(int argc, char** argv)
     char* timeout = shift_args(&argc, &argv);
 
     optional_host = (!optional_host) ? DEFAULT_HOST : optional_host;
-    *ping_timeout = (!timeout) ? 300 : atoi(timeout) * 60;
+    ping_timeout = (!timeout) ? 300 : atoi(timeout);
 
     printf("RUNNING %s\n", program);
 
