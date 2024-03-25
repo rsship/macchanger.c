@@ -17,9 +17,8 @@
 #include <time.h>
 #include <unistd.h>
 
-#define PACKET_SIZE 64
-#define SENDER_LIMIT 3
-#define DEFAULT_HOST "google.com"
+#define PACKET_SIZE 64  // packet size of each echo packet
+#define SENDER_LIMIT 12 // max try logic to send ping
 
 #define free_defer(value) \
     do {                  \
@@ -34,6 +33,7 @@ typedef struct {
     char* interface_name;
 } Echo;
 
+#define DEFAULT_HOST "google.com"
 int sender_count;
 
 typedef struct {
@@ -146,7 +146,7 @@ uint16_t checksum(uint16_t* addr, int len)
     return (answer);
 }
 
-int* ping_timeout;
+int ping_timeout;
 
 void* main_loop(void* icmp_raw)
 {
@@ -171,23 +171,24 @@ void* main_loop(void* icmp_raw)
 
     bool flag = 1;
     while (flag) {
-        sleep(*ping_timeout);
-
-        if (sendto(echo.sock,
-                packet,
-                PACKET_SIZE,
-                0,
-                (struct sockaddr*)&echo.to,
-                sizeof(echo.to))
-            < 0) {
-            perror("sendto:");
+        sleep(ping_timeout);
+        for (int i = 0; i < 4; ++i) {
+            if (sendto(echo.sock,
+                    packet,
+                    PACKET_SIZE,
+                    0,
+                    (struct sockaddr*)&echo.to,
+                    sizeof(echo.to))
+                < 0) {
+                perror("sendto:");
+            }
         }
         // Type
         //    8 for echo message;
         //    0 for echo reply message.
         Ping_Packet* ping_pkt = (Ping_Packet*)packet;
         if (ping_pkt->hdr.type == 8) {
-            printf("sending ICMP MSG\n");
+            printf("SENDING ICMP MSG\n");
             sender_count += 1;
         }
         if (sender_count > SENDER_LIMIT) {
@@ -218,7 +219,7 @@ int main(int argc, char** argv)
     char* timeout = shift_args(&argc, &argv);
 
     optional_host = (!optional_host) ? DEFAULT_HOST : optional_host;
-    *ping_timeout = (!timeout) ? 300 : atoi(timeout) * 60;
+    ping_timeout = (!timeout) ? 300 : atoi(timeout);
 
     printf("RUNNING %s\n", program);
 
